@@ -1,0 +1,87 @@
+{
+  "name": "ksinimage",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Ksin Image - 桌面图片管理应用",
+  "main": "electron/main.js",
+  "author": "Ksin",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "start": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build && electron-builder",
+    "build:dir": "vite build && electron-builder --dir",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\""
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.8.4",
+    "electron-store": "^10.1.0",
+    "electron-updater": "^6.6.2",
+    "element-plus": "^2.10.4",
+    "pinia": "^2.2.0",
+    "vue": "^3.5.30",
+    "vue-i18n": "^11.3.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.5",
+    "concurrently": "^9.1.2",
+    "electron": "^41.0.3",
+    "electron-builder": "^26.0.12",
+    "vite": "^8.0.0",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.ksin.image",
+    "productName": "Ksin Image",
+    "directories": {
+      "output": "dist"
+    },
+    "asar": true,
+    "copyright": "Copyright © 2026 Ksin",
+    "files": [
+      "web/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      }
+    ],
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": "x64"
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}_${version}.${ext}",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Ksin Image"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://update.ksinx.com/"
+    }
+  }
+}

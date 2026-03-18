@@ -1,0 +1,9 @@
+﻿node_modules/
+dist/
+web/
+.DS_Store
+*.log
+*.tmp
+*.cache
+electron-builder.yml
+build/builder-effective-config.yaml
