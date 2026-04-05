@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, Tray, ipcMain, dialog, shell, Notification } 
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { existsSync } from 'fs'
+import os from 'os'
 import Store from 'electron-store'
 import pkg from 'electron-updater'
 
@@ -11,7 +12,11 @@ const { autoUpdater } = pkg
 
 let mainWindow = null
 let authWindow = null
+let payWindow = null
+let viewerWindow = null
+let updateWindow = null
 let tray = null
+let isQuitting = false
 const store = new Store()
 
 // 开发环境下的URL
@@ -62,7 +67,13 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       webSecurity: false
     },
-    backgroundColor: '#ffffff'
+    backgroundColor: '#ffffff',
+    show: false
+  })
+
+  // 页面加载完成后显示窗口，避免闪屏
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
   })
 
   // Windows 上强制刷新任务栏图标
@@ -84,6 +95,7 @@ function createWindow() {
 
   // 窗口关闭行为
   mainWindow.on('close', (event) => {
+    if (isQuitting) return
     const closeBehavior = store.get('settings.closeBehavior', 'minimize')
     if (closeBehavior === 'minimize') {
       event.preventDefault()
@@ -122,19 +134,26 @@ function createTray() {
     {
       label: '检查更新',
       click: () => {
-        autoUpdater.checkForUpdatesAndNotify()
+        checkForUpdates()
       }
     },
     { type: 'separator' },
     {
       label: '退出',
       click: () => {
+        isQuitting = true
         // 销毁所有窗口
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.destroy()
+        if (viewerWindow && !viewerWindow.isDestroyed()) {
+          viewerWindow.destroy()
+        }
+        if (payWindow && !payWindow.isDestroyed()) {
+          payWindow.destroy()
         }
         if (authWindow && !authWindow.isDestroyed()) {
           authWindow.destroy()
+        }
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.destroy()
         }
         // 退出应用
         app.quit()
@@ -150,8 +169,8 @@ function createTray() {
     console.error('Error setting tray context menu:', error)
   }
 
-  // 双击托盘图标显示窗口
-  tray.on('double-click', () => {
+  // 点击托盘图标显示窗口
+  tray.on('click', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isVisible()) {
         mainWindow.hide()
@@ -165,6 +184,11 @@ function createTray() {
 
 // 检查更新
 function checkForUpdates() {
+  // 开发模式下强制检查更新
+  if (!app.isPackaged) {
+    autoUpdater.forceDevDownloadConfig = true
+  }
+  
   autoUpdater.setFeedURL({
     provider: 'generic',
     url: 'https://update.ksinx.com/'
@@ -242,6 +266,181 @@ function createAuthWindow(type = 'login') {
   })
 }
 
+// 创建支付窗口
+function createPayWindow(planId, priceId) {
+  if (payWindow) {
+    payWindow.destroy()
+    payWindow = null
+  }
+
+  payWindow = new BrowserWindow({
+    width: 520,
+    height: 680,
+    frame: false,
+    resizable: false,
+    title: '购买套餐',
+    icon: iconPath,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false
+    },
+    backgroundColor: '#ffffff',
+    show: false,
+    parent: mainWindow
+  })
+
+  const payUrl = `plan=${planId}&price=${priceId}`
+  if (isDev) {
+    payWindow.loadURL(`${VITE_DEV_URL}#/pay?${payUrl}`)
+  } else {
+    payWindow.loadFile(path.join(__dirname, '../web/index.html'), { hash: `/pay?${payUrl}` })
+  }
+
+  payWindow.once('ready-to-show', () => {
+    payWindow.show()
+  })
+
+  payWindow.on('closed', () => {
+    // 支付窗口关闭时通知主窗口刷新数据
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('pay-success')
+    }
+    payWindow = null
+  })
+}
+
+// 创建更新窗口
+function createUpdateWindow() {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.focus()
+    return
+  }
+
+  updateWindow = new BrowserWindow({
+    width: 450,
+    height: 400,
+    frame: false,
+    resizable: false,
+    title: '检查更新',
+    icon: iconPath,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false
+    },
+    backgroundColor: '#ffffff',
+    show: false,
+    parent: mainWindow,
+    modal: true
+  })
+
+  if (isDev) {
+    updateWindow.loadURL(`${VITE_DEV_URL}#/update`)
+  } else {
+    updateWindow.loadFile(path.join(__dirname, '../web/index.html'), { hash: '/update' })
+  }
+
+  updateWindow.once('ready-to-show', () => {
+    updateWindow.show()
+  })
+
+  updateWindow.on('closed', () => {
+    updateWindow = null
+  })
+}
+
+// 创建图片查看窗口
+function createViewerWindow(imageUrl, imageName, imageInfo) {
+  if (viewerWindow && !viewerWindow.isDestroyed()) {
+    viewerWindow.destroy()
+    viewerWindow = null
+  }
+
+  viewerWindow = new BrowserWindow({
+    width: 1000,
+    height: 700,
+    minWidth: 600,
+    minHeight: 400,
+    frame: false,
+    title: imageName || '图片查看',
+    icon: iconPath,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false
+    },
+    backgroundColor: '#000000',
+    show: false
+  })
+
+  const params = `url=${encodeURIComponent(imageUrl || '')}&name=${encodeURIComponent(imageName || '')}&info=${encodeURIComponent(JSON.stringify(imageInfo || {}))}`
+  
+  if (isDev) {
+    viewerWindow.loadURL(`${VITE_DEV_URL}#/viewer?${params}`)
+  } else {
+    viewerWindow.loadFile(path.join(__dirname, '../web/index.html'), { hash: `/viewer?${params}` })
+  }
+
+  viewerWindow.once('ready-to-show', () => {
+    viewerWindow.show()
+  })
+
+  viewerWindow.on('closed', () => {
+    viewerWindow = null
+  })
+}
+
+// 创建相册详情窗口
+let albumDetailWindow = null
+
+function createAlbumDetailWindow(albumId, albumName) {
+  if (albumDetailWindow) {
+    albumDetailWindow.destroy()
+    albumDetailWindow = null
+  }
+
+  albumDetailWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    minWidth: 600,
+    minHeight: 500,
+    frame: false,
+    title: albumName || '相册详情',
+    icon: iconPath,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false
+    },
+    backgroundColor: '#ffffff',
+    show: false
+  })
+
+  const params = `id=${albumId}`
+  if (isDev) {
+    albumDetailWindow.loadURL(`${VITE_DEV_URL}#/square-album-detail?${params}`)
+  } else {
+    albumDetailWindow.loadFile(path.join(__dirname, '../web/index.html'), { hash: `/square-album-detail?${params}` })
+  }
+
+  albumDetailWindow.once('ready-to-show', () => {
+    albumDetailWindow.show()
+  })
+
+  albumDetailWindow.on('closed', () => {
+    albumDetailWindow = null
+  })
+}
+
 // IPC 通信处理
 ipcMain.handle('window-control', (event, action) => {
   if (!mainWindow) return
@@ -272,6 +471,74 @@ ipcMain.handle('open-auth-window', (event, type) => {
   }, 100)
 })
 
+ipcMain.handle('open-pay-window', (event, planId, priceId) => {
+  setTimeout(() => {
+    createPayWindow(planId, priceId)
+  }, 100)
+})
+
+ipcMain.handle('close-pay-window', () => {
+  if (payWindow) {
+    payWindow.close()
+    payWindow = null
+  }
+})
+
+// 图片查看窗口
+ipcMain.handle('open-viewer-window', async (event, imageUrl, imageName, imageInfo) => {
+  try {
+    createViewerWindow(imageUrl, imageName, imageInfo)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('close-viewer-window', () => {
+  if (viewerWindow) {
+    viewerWindow.close()
+    viewerWindow = null
+  }
+})
+
+// 相册详情窗口
+ipcMain.handle('open-album-detail-window', (event, albumId, albumName) => {
+  setTimeout(() => {
+    createAlbumDetailWindow(albumId, albumName)
+  }, 100)
+})
+
+// 关闭当前窗口
+ipcMain.handle('close-current-window', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win && !win.isDestroyed()) {
+    win.close()
+  }
+})
+
+// 关闭相册详情窗口
+ipcMain.handle('close-album-detail-window', () => {
+  if (albumDetailWindow && !albumDetailWindow.isDestroyed()) {
+    albumDetailWindow.close()
+    albumDetailWindow = null
+  }
+})
+
+// 监听支付成功消息，置顶主窗口并通知刷新
+ipcMain.on('pay-success', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show()
+    mainWindow.setAlwaysOnTop(true)
+    mainWindow.setAlwaysOnTop(false)
+    mainWindow.focus()
+    mainWindow.webContents.send('pay-success')
+  }
+})
+
+// 抓取支付宝页面提取二维码（用隐藏窗口渲染后提取）
+
+
+
 ipcMain.handle('close-auth-window', () => {
   if (authWindow) {
     authWindow.close()
@@ -291,6 +558,7 @@ ipcMain.handle('get-app-version', () => {
 })
 
 ipcMain.handle('check-update', () => {
+  createUpdateWindow()
   checkForUpdates()
 })
 
@@ -333,12 +601,145 @@ ipcMain.handle('delete-store', (event, key) => {
   return store.delete(key)
 })
 
+// 获取系统默认图片目录
+ipcMain.handle('get-default-pictures-dir', () => {
+  const platform = process.platform
+  const homeDir = os.homedir()
+
+  if (platform === 'win32') {
+    // Windows: 获取用户图片文件夹
+    return path.join(homeDir, 'Pictures')
+  } else if (platform === 'darwin') {
+    // macOS: 获取图片文件夹
+    return path.join(homeDir, 'Pictures')
+  } else {
+    // Linux: 获取 XDG_PICTURES_DIR 环境变量或默认 ~/Pictures
+    return path.join(homeDir, 'Pictures')
+  }
+})
+
+// 获取应用缓存目录
+ipcMain.handle('get-cache-directory', () => {
+  const platform = process.platform
+  const appPath = app.getPath('userData')
+
+  if (platform === 'win32') {
+    return path.join(appPath, 'Cache')
+  } else if (platform === 'darwin') {
+    return path.join(appPath, 'Cache')
+  } else {
+    return path.join(appPath, 'Cache')
+  }
+})
+
+// 获取下载目录
+ipcMain.handle('get-download-directory', () => {
+  return app.getPath('downloads')
+})
+
+// 扩展名映射
+const mimeToExtension = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/bmp': '.bmp',
+  'image/svg+xml': '.svg',
+  'image/tiff': '.tiff',
+  'image/x-icon': '.ico'
+}
+
+// 下载文件到指定目录
+ipcMain.handle('download-file', async (event, url, filename, savePath) => {
+  try {
+    const https = await import('https')
+    const http = await import('http')
+    const fs = await import('fs')
+
+    return new Promise((resolve, reject) => {
+      const protocol = url.startsWith('https') ? https : http
+
+      // 处理文件名中的 @ 参数，如: xxx.jpg@976w_550h_!web-home-carousel-cover
+      if (filename && filename.includes('@')) {
+        filename = filename.split('@')[0]
+      }
+
+      const filePath = path.join(savePath, filename)
+      const file = fs.createWriteStream(filePath)
+
+      protocol.get(url, (response) => {
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          // 处理重定向
+          const redirectUrl = response.headers.location
+          protocol.get(redirectUrl, (redirectResponse) => {
+            // 从重定向响应中获取 Content-Type
+            const contentType = redirectResponse.headers['content-type']
+            let ext = path.extname(filename)
+            if (!ext && contentType && mimeToExtension[contentType]) {
+              ext = mimeToExtension[contentType]
+              filename = filename + ext
+              const newFilePath = path.join(savePath, filename)
+              file.close()
+              const newFile = fs.createWriteStream(newFilePath)
+              redirectResponse.pipe(newFile)
+              redirectResponse.on('end', () => {
+                newFile.close()
+                resolve({ success: true, path: newFilePath })
+              })
+            } else {
+              redirectResponse.pipe(file)
+              redirectResponse.on('end', () => {
+                file.close()
+                resolve({ success: true, path: filePath })
+              })
+            }
+          }).on('error', reject)
+        } else {
+          // 从响应中获取 Content-Type
+          const contentType = response.headers['content-type']
+          let ext = path.extname(filename)
+          if (!ext && contentType && mimeToExtension[contentType]) {
+            ext = mimeToExtension[contentType]
+            filename = filename + ext
+            const newFilePath = path.join(savePath, filename)
+            file.close()
+            const newFile = fs.createWriteStream(newFilePath)
+            response.pipe(newFile)
+            response.on('end', () => {
+              newFile.close()
+              resolve({ success: true, path: newFilePath })
+            })
+          } else {
+            response.pipe(file)
+            response.on('end', () => {
+              file.close()
+              resolve({ success: true, path: filePath })
+            })
+          }
+        }
+      }).on('error', reject)
+    })
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+// 选择目录对话框
+ipcMain.handle('select-directory', async (event, options) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: options?.title || '选择目录'
+  })
+  return result.canceled ? null : result.filePaths[0]
+})
+
 // 发送通知
 ipcMain.handle('show-notification', (event, options) => {
   if (Notification.isSupported()) {
     try {
       const notification = new Notification({
-        title: 'Ksin Image - ' + (options.title || ''),
+        title: options.title || '',
         body: options.body || '',
         icon: iconPath,
         // Windows 上设置 app ID
@@ -378,5 +779,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  isQuitting = true
   mainWindow = null
 })

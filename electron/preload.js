@@ -36,6 +36,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setStore: (key, value) => ipcRenderer.invoke('set-store', key, value),
   deleteStore: (key) => ipcRenderer.invoke('delete-store', key),
 
+  // 获取系统默认图片目录
+  getDefaultPicturesDir: () => ipcRenderer.invoke('get-default-pictures-dir'),
+
+  // 获取应用缓存目录
+  getCacheDirectory: () => ipcRenderer.invoke('get-cache-directory'),
+
+  // 获取下载目录
+  getDownloadDirectory: () => ipcRenderer.invoke('get-download-directory'),
+
+  // 下载文件
+  downloadFile: (url, filename, savePath) => ipcRenderer.invoke('download-file', url, filename, savePath),
+
+  // 选择目录
+  selectDirectory: (options) => ipcRenderer.invoke('select-directory', options),
+
   // 通知
-  showNotification: (options) => ipcRenderer.invoke('show-notification', options)
+  showNotification: (options) => ipcRenderer.invoke('show-notification', options),
+
+  // 支付窗口
+  openPayWindow: (planId, priceId) => ipcRenderer.invoke('open-pay-window', planId, priceId),
+  closePayWindow: () => ipcRenderer.invoke('close-pay-window'),
+  notifyPaySuccess: () => ipcRenderer.send('pay-success'),
+  onPaySuccess: (callback) => ipcRenderer.on('pay-success', (event) => callback()),
+
+  // 图片查看窗口
+  openViewerWindow: (imageUrl, imageName, imageInfo) => ipcRenderer.invoke('open-viewer-window', imageUrl, imageName, imageInfo),
+  closeViewerWindow: () => ipcRenderer.invoke('close-viewer-window'),
+
+  // 相册详情窗口
+  openAlbumDetailWindow: (albumId, albumName) => ipcRenderer.invoke('open-album-detail-window', albumId, albumName),
+  closeWindow: () => ipcRenderer.invoke('close-current-window')
 })

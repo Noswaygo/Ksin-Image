@@ -1,11 +1,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSettingStore } from '@/stores/setting'
 import { useUserStore } from '@/stores/user'
 import { Sunny, Moon } from '@element-plus/icons-vue'
 
+const router = useRouter()
 const { t } = useI18n()
 const settingStore = useSettingStore()
 const userStore = useUserStore()
@@ -39,6 +41,28 @@ const changeThemeColor = (color) => {
 const changeLanguage = (lang) => {
   settingStore.setLanguage(lang)
   location.reload()
+}
+
+const selectCacheDirectory = async () => {
+  try {
+    const dir = await window.electronAPI?.selectDirectory?.()
+    if (dir) {
+      settingStore.setCacheDirectory(dir)
+    }
+  } catch (error) {
+    ElMessage.error(t('settings.selectDirectoryFailed'))
+  }
+}
+
+const selectDownloadDirectory = async () => {
+  try {
+    const dir = await window.electronAPI?.selectDirectory?.()
+    if (dir) {
+      settingStore.setDownloadDirectory(dir)
+    }
+  } catch (error) {
+    ElMessage.error(t('settings.selectDirectoryFailed'))
+  }
 }
 
 const saveSettings = async () => {
@@ -119,8 +143,22 @@ const handleStartAtLoginChange = (value) => {
   ElMessage.success(value ? '开机自启已开启' : '开机自启已关闭')
 }
 
-onMounted(() => {
+const handleOpenHomepage = () => {
+  if (window.electronAPI?.openExternal) {
+    window.electronAPI.openExternal('https://img.ksinx.com')
+  } else {
+    window.open('https://img.ksinx.com', '_blank')
+  }
+}
+
+const handleGoToSync = () => {
+  router.push('/sync')
+}
+
+onMounted(async () => {
   getVersion()
+  // 加载设置（包括自动获取默认同步目录）
+  await settingStore.loadSettings()
   // 从用户信息加载设置
   if (userStore.userInfo?.options) {
     settingStore.loadSettingsFromUserOptions(userStore.userInfo.options)
@@ -129,11 +167,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="settings">
-    <el-row :gutter="20">
-      <el-col :span="16" :offset="4">
-        <el-card class="settings-card">
-          <!-- 外观设置 -->
+  <div class="settings page-content">
+    <el-card class="settings-card">
+      <!-- 外观设置 -->
           <div class="settings-section">
             <h3>{{ t('settings.appearance') }}</h3>
 
@@ -214,6 +250,35 @@ onMounted(() => {
                 />
               </el-select>
             </div>
+
+            <div class="setting-item">
+              <span class="setting-label">{{ t('settings.cacheDirectory') }}</span>
+              <div class="path-input">
+                <el-input v-model="settingStore.cacheDirectory" :placeholder="t('settings.cacheDirectoryPlaceholder')" readonly />
+                <el-button @click="selectCacheDirectory">{{ t('settings.browse') }}</el-button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <span class="setting-label">{{ t('settings.downloadDirectory') }}</span>
+              <div class="path-input">
+                <el-input v-model="settingStore.downloadDirectory" :placeholder="t('settings.downloadDirectoryPlaceholder')" readonly />
+                <el-button @click="selectDownloadDirectory">{{ t('settings.browse') }}</el-button>
+              </div>
+            </div>
+          </div>
+
+          <el-divider />
+
+          <!-- 同步设置 -->
+          <div class="settings-section">
+            <h3>{{ t('settings.sync') }}</h3>
+            <div class="setting-item">
+              <span class="setting-label">{{ t('settings.syncDescription') }}</span>
+              <el-button type="primary" @click="handleGoToSync">
+                {{ t('settings.goToSync') }}
+              </el-button>
+            </div>
           </div>
 
           <el-divider />
@@ -279,30 +344,25 @@ onMounted(() => {
 
             <div class="setting-item">
               <span class="setting-label">{{ t('settings.homepage') }}</span>
-              <el-link type="primary" @click="window.electronAPI?.openExternal?.('https://img.ksinx.com')">
+              <el-link type="primary" @click="handleOpenHomepage">
                 https://img.ksinx.com
               </el-link>
             </div>
           </div>
 
-          <div class="settings-actions">
+          <div v-if="userStore.isLoggedIn" class="settings-actions">
             <el-button type="primary" :loading="loading" @click="saveSettings">
               {{ t('common.save') }}
             </el-button>
           </div>
         </el-card>
-      </el-col>
-    </el-row>
   </div>
 </template>
 
 <style scoped>
-.settings {
-  padding: 0;
-}
-
 .settings-card {
   max-width: 800px;
+  margin: 0 auto;
 }
 
 .settings-section {
@@ -353,6 +413,16 @@ onMounted(() => {
 .color-picker {
   display: flex;
   gap: 8px;
+}
+
+.path-input {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+
+.path-input .el-input {
+  flex: 1;
 }
 
 .color-item {

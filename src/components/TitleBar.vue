@@ -29,6 +29,7 @@ const handleRefresh = () => {
 <template>
   <div class="title-bar">
     <div class="title-bar-left">
+      <img src="/icons.svg" alt="Ksin Image" class="title-icon" />
       <span class="title">Ksin Image</span>
     </div>
     <div class="title-bar-right">
@@ -67,7 +68,12 @@ const handleRefresh = () => {
   display: flex;
   align-items: center;
   padding-left: 20px;
-  gap: 8px;
+  gap: 10px;
+}
+
+.title-icon {
+  width: 24px;
+  height: 24px;
 }
 
 .title {

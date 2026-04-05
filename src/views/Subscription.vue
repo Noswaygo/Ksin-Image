@@ -1,10 +1,12 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
-import { subscriptionApi, planApi } from '@/api'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { subscriptionApi, planApi, orderApi } from '@/api'
 
 const { t } = useI18n()
+const router = useRouter()
 const loading = ref(false)
 const roleGroups = ref([])
 const capacities = ref([])
@@ -14,14 +16,32 @@ const planDetailVisible = ref(false)
 const selectedPlan = ref(null)
 const selectedPrice = ref(null)
 const planDetailLoading = ref(false)
+const buyLoading = ref(false)
+const couponCode = ref('')
+const payDialogVisible = ref(false)
+const payLoading = ref(false)
+const selectedPlatform = ref('alipay')
+const createdOrder = ref(null)
+const payResult = ref(null)
 
 const vipPlans = computed(() => plans.value.filter(p => p.type === 'vip'))
 const capacityPlans = computed(() => plans.value.filter(p => p.type === 'storage'))
+
+// 支付方式选项
+const payPlatforms = [
+  { value: 'alipay', label: '支付宝', channel: 'alipay', method: 'web' },
+  { value: 'paypal', label: 'PayPal', channel: 'paypal', method: 'web' }
+]
 
 // 根据 ID 查找价格对象
 const getSelectedPriceObject = computed(() => {
   if (!selectedPrice.value || !selectedPlan.value?.prices) return null
   return selectedPlan.value.prices.find(p => p.id === selectedPrice.value)
+})
+
+// 当前选中的支付方式详情
+const currentPayPlatform = computed(() => {
+  return payPlatforms.find(p => p.value === selectedPlatform.value)
 })
 
 const fetchMySubscriptions = async () => {
@@ -102,34 +122,121 @@ const formatDuration = (minutes) => {
 }
 
 const handlePlanClick = async (plan) => {
-  selectedPlan.value = plan
-  selectedPrice.value = null
-  planDetailVisible.value = true
-  planDetailLoading.value = true
-  try {
-    const res = await planApi.getPlanDetail(plan.id)
-    selectedPlan.value = res.data
-  } catch (error) {
-    ElMessage.error('获取套餐详情失败')
-    planDetailVisible.value = false
-  } finally {
-    planDetailLoading.value = false
+  if (window.electronAPI?.openPayWindow) {
+    // Electron 环境：在新窗口打开支付页
+    window.electronAPI.openPayWindow(plan.id)
+  } else {
+    // 浏览器环境：回退到原逻辑
+    selectedPlan.value = plan
+    selectedPrice.value = null
+    planDetailVisible.value = true
+    planDetailLoading.value = true
+    try {
+      const res = await planApi.getPlanDetail(plan.id)
+      selectedPlan.value = res.data
+    } catch (error) {
+      ElMessage.error('获取套餐详情失败')
+      planDetailVisible.value = false
+    } finally {
+      planDetailLoading.value = false
+    }
   }
 }
 
 const handleBuy = async () => {
   if (!selectedPrice.value) {
-    ElMessage.warning('请选择套餐时长')
+    ElMessage.warning(t('subscription.selectPlanDuration'))
     return
   }
-  const priceObj = getSelectedPriceObject.value
-  ElMessage.success(`购买：${priceObj?.name} - ¥${priceObj?.price}`)
-  // TODO: 实际购买逻辑
+
+  try {
+    buyLoading.value = true
+    const orderData = { price_id: selectedPrice.value }
+    if (couponCode.value.trim()) {
+      orderData.coupon_code = couponCode.value.trim()
+    }
+
+    const res = await orderApi.createOrder(orderData)
+    createdOrder.value = res.data?.data || res.data
+
+    if (createdOrder.value?.trade_no) {
+      planDetailVisible.value = false
+      payDialogVisible.value = true
+    } else {
+      ElMessage.error(t('subscription.createOrderFailed'))
+    }
+  } catch (error) {
+    const msg = error.response?.data?.message || t('subscription.createOrderFailed')
+    ElMessage.error(msg)
+  } finally {
+    buyLoading.value = false
+  }
+}
+
+const handlePay = async () => {
+  if (!createdOrder.value?.trade_no || !currentPayPlatform.value) return
+
+  try {
+    payLoading.value = true
+    const platform = currentPayPlatform.value
+    const payData = {
+      platform: platform.value,
+      channel: platform.channel,
+      method: platform.method
+    }
+
+    if (platform.value === 'paypal') {
+      payData.return_url = window.location.href
+      payData.cancel_url = window.location.href
+    }
+
+    const res = await orderApi.payOrder(createdOrder.value.trade_no, payData)
+    const data = res.data?.data || res.data
+
+    if (data?.url) {
+      window.electronAPI?.openExternal?.(data.url)
+      payDialogVisible.value = false
+      ElMessage.success(t('subscription.redirectingToPay'))
+    } else if (data?.qr_code) {
+      payResult.value = data
+      ElMessage.success(t('subscription.qrCodeGenerated'))
+    } else if (data?.content) {
+      payDialogVisible.value = false
+      ElMessage.info(t('subscription.payContentGenerated'))
+    } else {
+      ElMessage.error(t('subscription.payFailed'))
+    }
+  } catch (error) {
+    const msg = error.response?.data?.message || t('subscription.payFailed')
+    ElMessage.error(msg)
+  } finally {
+    payLoading.value = false
+  }
+}
+
+const handleViewOrder = () => {
+  if (createdOrder.value?.trade_no) {
+    router.push(`/orders/${createdOrder.value.trade_no}`)
+  }
+  payDialogVisible.value = false
+}
+
+// 监听支付窗口关闭事件，刷新订阅数据
+let isAlive = true
+const onPaySuccess = () => {
+  if (isAlive) {
+    fetchMySubscriptions()
+  }
 }
 
 onMounted(() => {
   fetchMySubscriptions()
   fetchPlans()
+  window.electronAPI?.onPaySuccess?.(onPaySuccess)
+})
+
+onUnmounted(() => {
+  isAlive = false
 })
 </script>
 
@@ -292,8 +399,68 @@ onMounted(() => {
       </div>
 
       <template #footer>
-        <el-button @click="planDetailVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleBuy" :disabled="!getSelectedPriceObject">购买</el-button>
+        <div class="dialog-footer-content">
+          <div class="coupon-row">
+            <el-input
+              v-model="couponCode"
+              :placeholder="t('subscription.couponPlaceholder')"
+              clearable
+              size="default"
+            >
+              <template #prefix>🎫</template>
+            </el-input>
+          </div>
+          <div class="footer-buttons">
+            <el-button @click="planDetailVisible = false">{{ t('common.cancel') }}</el-button>
+            <el-button type="primary" @click="handleBuy" :disabled="!getSelectedPriceObject" :loading="buyLoading">
+              {{ t('subscription.buy') }} ¥{{ getSelectedPriceObject?.price || '0.00' }}
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 支付对话框 -->
+    <el-dialog
+      v-model="payDialogVisible"
+      :title="t('subscription.selectPayMethod')"
+      width="480px"
+      :close-on-click-modal="false"
+    >
+      <div v-if="!payResult" class="pay-method-selection">
+        <div class="order-info-bar">
+          <span>{{ t('subscription.orderNo') }}: {{ createdOrder?.trade_no }}</span>
+          <span class="order-amount">¥{{ createdOrder?.amount?.toFixed(2) || '0.00' }}</span>
+        </div>
+
+        <div class="pay-platforms">
+          <div
+            v-for="platform in payPlatforms"
+            :key="platform.value"
+            :class="['pay-platform-item', { active: selectedPlatform === platform.value }]"
+            @click="selectedPlatform = platform.value"
+          >
+            <div class="pay-radio">
+              <div class="pay-radio-dot"></div>
+            </div>
+            <span class="pay-platform-label">{{ platform.label }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div v-else class="pay-result">
+        <div class="qr-code-tip">{{ t('subscription.scanToPay') }}</div>
+        <div class="qr-code-box">
+          <img v-if="payResult.qr_code" :src="'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(payResult.qr_code)" alt="QR Code" />
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="payDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button v-if="createdOrder" @click="handleViewOrder">{{ t('subscription.viewOrder') }}</el-button>
+        <el-button type="primary" @click="handlePay" :loading="payLoading">
+          {{ t('subscription.payNow') }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -468,5 +635,131 @@ onMounted(() => {
   font-weight: 700;
   color: var(--el-color-primary);
   flex-shrink: 0;
+}
+
+.dialog-footer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.coupon-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.coupon-row .el-input {
+  width: 220px;
+}
+
+.footer-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.order-info-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.order-amount {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--el-color-danger);
+}
+
+.pay-platforms {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pay-platform-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 2px solid var(--el-border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.pay-platform-item:hover {
+  border-color: var(--el-color-primary-light-3);
+}
+
+.pay-platform-item.active {
+  border-color: var(--el-color-primary);
+  background-color: var(--el-color-primary-light-9);
+}
+
+.pay-radio {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--el-border-color);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+
+.pay-platform-item.active .pay-radio {
+  border-color: var(--el-color-primary);
+}
+
+.pay-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--el-color-primary);
+  transform: scale(0);
+  transition: transform 0.3s;
+}
+
+.pay-platform-item.active .pay-radio-dot {
+  transform: scale(1);
+}
+
+.pay-platform-label {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+
+.pay-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.qr-code-tip {
+  font-size: 14px;
+  color: var(--el-text-color-regular);
+}
+
+.qr-code-box {
+  width: 200px;
+  height: 200px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.qr-code-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 </style>

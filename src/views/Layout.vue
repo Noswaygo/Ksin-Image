@@ -6,7 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import TitleBar from '@/components/TitleBar.vue'
 import Sidebar from '@/components/Sidebar.vue'
-import { User, Setting, SwitchButton } from '@element-plus/icons-vue'
+import { User, Setting, SwitchButton, Trophy, Share } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -14,6 +14,7 @@ const { t } = useI18n()
 const userStore = useUserStore()
 
 const isAuthPage = computed(() => route.path === '/login' || route.path === '/register')
+const showSidebar = computed(() => !route.meta?.hideSidebar)
 
 // 调试：监听登录状态变化
 watch(() => userStore.isLoggedIn, (newVal) => {
@@ -50,6 +51,14 @@ const goToProfile = () => {
 
 const goToSettings = () => {
   router.push('/settings')
+}
+
+const goToSubscription = () => {
+  router.push('/subscription')
+}
+
+const goToShares = () => {
+  router.push('/shares')
 }
 
 const formatBytes = (bytes) => {
@@ -112,8 +121,8 @@ onUnmounted(() => {
   <div class="layout">
     <TitleBar />
     <div class="layout-content">
-      <Sidebar />
-      <main class="main-content">
+      <Sidebar v-if="showSidebar" />
+      <main class="main-content" :class="{ 'full-width': !showSidebar }">
         <div class="page-header">
           <h2>{{ route.meta?.titleKey ? t(route.meta.titleKey) : '' }}</h2>
           <div class="header-actions">
@@ -139,13 +148,19 @@ onUnmounted(() => {
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item @click="goToProfile">
-                      <User /> {{ t('common.personalCenter') }}
+                      <el-icon :size="16"><User /></el-icon> {{ t('common.personalCenter') }}
+                    </el-dropdown-item>
+                    <el-dropdown-item @click="goToSubscription">
+                      <el-icon :size="16"><Trophy /></el-icon> {{ t('nav.subscription') }}
+                    </el-dropdown-item>
+                    <el-dropdown-item @click="goToShares">
+                      <el-icon :size="16"><Share /></el-icon> {{ t('nav.myShares') }}
                     </el-dropdown-item>
                     <el-dropdown-item @click="goToSettings">
-                      <Setting /> {{ t('nav.settings') }}
+                      <el-icon :size="16"><Setting /></el-icon> {{ t('nav.settings') }}
                     </el-dropdown-item>
                     <el-dropdown-item divided @click="handleLogout">
-                      <SwitchButton /> {{ t('nav.logout') }}
+                      <el-icon :size="16"><SwitchButton /></el-icon> {{ t('nav.logout') }}
                     </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -184,6 +199,10 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.main-content.full-width {
+  width: 100%;
 }
 
 .page-header {
@@ -284,5 +303,12 @@ onUnmounted(() => {
 .page-content.no-scroll {
   overflow-y: hidden;
   padding: 0;
+}
+
+/* 下拉菜单图标大小 */
+:deep(.el-dropdown-menu .el-dropdown-menu__item .el-icon) {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
 }
 </style>

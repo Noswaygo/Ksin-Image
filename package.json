@@ -1,7 +1,7 @@
 {
   "name": "ksinimage",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.7.15",
   "type": "module",
   "description": "Ksin Image - 桌面图片管理应用",
   "main": "electron/main.js",
@@ -81,7 +81,7 @@
     },
     "publish": {
       "provider": "generic",
-      "url": "https://update.ksinx.com/"
+      "url": "https://www.ksinx.com/software/Ksin-Image/"
     }
   }
 }

@@ -17,10 +17,16 @@ export const useSettingStore = defineStore('setting', {
     autoUploadAfterSelect: localStorage.getItem('autoUploadAfterSelect') === 'true',
     uploadButtonAction: localStorage.getItem('uploadButtonAction') || 'direct',
     defaultStorageId: parseInt(localStorage.getItem('defaultStorageId')) || 3,
+    cacheDirectory: localStorage.getItem('cacheDirectory') || '', // 缓存目录
+    downloadDirectory: localStorage.getItem('downloadDirectory') || '', // 下载目录
 
     // 窗口行为
     closeBehavior: localStorage.getItem('closeBehavior') || 'minimize', // minimize: 最小化, close: 直接关闭
     minimizeBehavior: localStorage.getItem('minimizeBehavior') || 'taskbar', // taskbar: 任务栏, tray: 托盘
+
+    // 同步设置
+    autoSync: localStorage.getItem('autoSync') !== 'false', // 默认开启自动同步
+    syncDirectory: localStorage.getItem('syncDirectory') || '', // 同步目录
 
     // 系统设置
     startAtLogin: localStorage.getItem('startAtLogin') === 'true',
@@ -35,6 +41,53 @@ export const useSettingStore = defineStore('setting', {
   },
 
   actions: {
+    // 获取系统默认图片目录
+    async getDefaultPicturesDir() {
+      try {
+        const dir = await window.electronAPI?.getDefaultPicturesDir?.()
+        return dir || ''
+      } catch (error) {
+        console.error('Failed to get default pictures directory:', error)
+        return ''
+      }
+    },
+
+    // 获取应用缓存目录
+    async getCacheDirectory() {
+      try {
+        const dir = await window.electronAPI?.getCacheDirectory?.()
+        return dir || ''
+      } catch (error) {
+        console.error('Failed to get cache directory:', error)
+        return ''
+      }
+    },
+
+    // 获取下载目录
+    async getDownloadDirectory() {
+      try {
+        const dir = await window.electronAPI?.getDownloadDirectory?.()
+        return dir || ''
+      } catch (error) {
+        console.error('Failed to get download directory:', error)
+        return ''
+      }
+    },
+
+    // 设置下载目录
+    setDownloadDirectory(dir) {
+      this.downloadDirectory = dir
+      localStorage.setItem('downloadDirectory', dir)
+      window.electronAPI?.setStore?.('settings.downloadDirectory', dir)
+    },
+
+    // 设置缓存目录
+    setCacheDirectory(dir) {
+      this.cacheDirectory = dir
+      localStorage.setItem('cacheDirectory', dir)
+      window.electronAPI?.setStore?.('settings.cacheDirectory', dir)
+    },
+
     // 切换主题
     toggleTheme() {
       this.darkMode = !this.darkMode
@@ -76,8 +129,8 @@ export const useSettingStore = defineStore('setting', {
       this[key] = value
       if (value !== undefined && value !== null) {
         localStorage.setItem(key, typeof value === 'boolean' ? value.toString() : value)
-        // 窗口行为设置同步到 electron-store
-        if (key === 'closeBehavior' || key === 'minimizeBehavior' || key === 'showNotification') {
+        // 窗口行为和同步设置同步到 electron-store
+        if (key === 'closeBehavior' || key === 'minimizeBehavior' || key === 'showNotification' || key === 'autoSync' || key === 'syncDirectory') {
           window.electronAPI?.setStore?.('settings.' + key, value)
         }
       } else {
@@ -138,6 +191,37 @@ export const useSettingStore = defineStore('setting', {
       // 从本地存储初始化
       this.applyTheme()
       this.setThemeColor(this.themeColor)
+
+      // 如果同步目录为空，自动获取系统默认图片目录
+      if (!this.syncDirectory) {
+        const defaultDir = await this.getDefaultPicturesDir()
+        if (defaultDir) {
+          this.syncDirectory = defaultDir
+          localStorage.setItem('syncDirectory', defaultDir)
+          window.electronAPI?.setStore?.('settings.syncDirectory', defaultDir)
+        }
+      }
+
+      // 如果缓存目录为空，自动获取应用缓存目录
+      if (!this.cacheDirectory) {
+        const cacheDir = await this.getCacheDirectory()
+        if (cacheDir) {
+          this.cacheDirectory = cacheDir
+          localStorage.setItem('cacheDirectory', cacheDir)
+          window.electronAPI?.setStore?.('settings.cacheDirectory', cacheDir)
+        }
+      }
+
+      // 如果下载目录为空，自动获取系统下载目录
+      if (!this.downloadDirectory) {
+        const downloadDir = await this.getDownloadDirectory()
+        if (downloadDir) {
+          this.downloadDirectory = downloadDir
+          localStorage.setItem('downloadDirectory', downloadDir)
+          window.electronAPI?.setStore?.('settings.downloadDirectory', downloadDir)
+        }
+      }
+
       // 同步窗口行为设置到 electron-store
       window.electronAPI?.setStore?.('settings.closeBehavior', this.closeBehavior)
       window.electronAPI?.setStore?.('settings.minimizeBehavior', this.minimizeBehavior)

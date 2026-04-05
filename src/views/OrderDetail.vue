@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Clock, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { orderApi } from '@/api'
 
@@ -9,6 +9,20 @@ const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const order = ref(null)
+const payDialogVisible = ref(false)
+const payLoading = ref(false)
+const selectedPlatform = ref('alipay')
+const payResult = ref(null)
+const pollTimer = ref(null)
+
+const payPlatforms = [
+  { value: 'alipay', label: '支付宝', channel: 'alipay', method: 'web' },
+  { value: 'paypal', label: 'PayPal', channel: 'paypal', method: 'web' }
+]
+
+const currentPayPlatform = computed(() => {
+  return payPlatforms.find(p => p.value === selectedPlatform.value)
+})
 
 const getStatusText = (status) => {
   const statusMap = {
@@ -86,8 +100,126 @@ const goBack = () => {
   router.back()
 }
 
+const showPayDialog = () => {
+  selectedPlatform.value = 'alipay'
+  payResult.value = null
+  stopPolling()
+  payDialogVisible.value = true
+}
+
+const handlePay = async () => {
+  if (!order.value?.trade_no || !currentPayPlatform.value) return
+
+  try {
+    payLoading.value = true
+    const platform = currentPayPlatform.value
+    const payData = {
+      platform: platform.value,
+      channel: platform.channel,
+      method: platform.method
+    }
+
+    if (platform.value === 'paypal') {
+      payData.return_url = window.location.href
+      payData.cancel_url = window.location.href
+    }
+
+    const res = await orderApi.payOrder(order.value.trade_no, payData)
+    const data = res.data?.data || res.data
+
+    if (platform.value === 'paypal' && data?.url) {
+      // PayPal: 打开默认浏览器
+      window.electronAPI?.openExternal?.(data.url)
+      payDialogVisible.value = false
+      ElMessage.success('正在跳转到支付页面...')
+      window.electronAPI?.notifyPaySuccess?.()
+    } else if (data?.url || data?.qr_code) {
+      // 支付宝等: 打开默认浏览器，轮询订单状态
+      const payUrl = data?.url || data?.qr_code
+      window.electronAPI?.openExternal?.(payUrl)
+      ElMessage.success('正在跳转到支付页面...')
+      startPolling()
+    } else if (data?.url) {
+      window.electronAPI?.openExternal?.(data.url)
+      payDialogVisible.value = false
+      ElMessage.success('正在跳转到支付页面...')
+      window.electronAPI?.notifyPaySuccess?.()
+    } else if (data?.content) {
+      payDialogVisible.value = false
+      ElMessage.info('支付信息已生成')
+    } else {
+      ElMessage.error('支付失败')
+    }
+  } catch (error) {
+    const msg = error.response?.data?.message || '支付失败'
+    ElMessage.error(msg)
+  } finally {
+    payLoading.value = false
+  }
+}
+
+const startPolling = () => {
+  stopPolling()
+  pollTimer.value = setInterval(async () => {
+    if (!order.value?.trade_no) return
+    try {
+      const res = await orderApi.getOrderDetail(order.value.trade_no)
+      const data = res.data?.data || res.data
+      if (data?.status === 'paid') {
+        stopPolling()
+        payDialogVisible.value = false
+        payResult.value = null
+        ElMessage.success('支付成功')
+        fetchOrderDetail()
+        window.electronAPI?.notifyPaySuccess?.()
+      }
+    } catch (error) {
+      // 轮询失败不影响
+    }
+  }, 3000)
+}
+
+const stopPolling = () => {
+  if (pollTimer.value) {
+    clearInterval(pollTimer.value)
+    pollTimer.value = null
+  }
+}
+
+const handleCancel = async () => {
+  try {
+    await ElMessageBox.confirm('确定要取消该订单吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const res = await orderApi.cancelOrder(order.value.trade_no)
+    ElMessage.success('订单已取消')
+    order.value = res.data?.data || res.data || order.value
+    order.value.status = 'cancelled'
+  } catch (error) {
+    if (error !== 'cancel') {
+      const msg = error.response?.data?.message || '取消订单失败'
+      ElMessage.error(msg)
+    }
+  }
+}
+
+let isAlive = true
+const onPaySuccess = () => {
+  if (isAlive) {
+    fetchOrderDetail()
+  }
+}
+
 onMounted(() => {
   fetchOrderDetail()
+  window.electronAPI?.onPaySuccess?.(onPaySuccess)
+})
+
+onUnmounted(() => {
+  isAlive = false
+  stopPolling()
 })
 </script>
 
@@ -184,11 +316,53 @@ onMounted(() => {
             <span class="total-label">合计价格</span>
             <span class="total-price">¥{{ order.amount?.toFixed(2) || '0.00' }}</span>
           </div>
+          <div v-if="order.status === 'unpaid'" class="pay-action">
+            <el-button size="large" @click="handleCancel">取消订单</el-button>
+            <el-button type="primary" size="large" @click="showPayDialog">
+              立即支付
+            </el-button>
+          </div>
         </div>
       </template>
 
       <el-empty v-else-if="!loading" description="订单不存在" />
     </el-card>
+
+    <!-- 支付对话框 -->
+    <el-dialog
+      v-model="payDialogVisible"
+      title="选择支付方式"
+      width="480px"
+      :close-on-click-modal="false"
+      @close="stopPolling"
+    >
+      <div class="pay-method-selection">
+        <div class="order-info-bar">
+          <span>订单号: {{ order?.trade_no }}</span>
+          <span class="order-amount">¥{{ order?.amount?.toFixed(2) || '0.00' }}</span>
+        </div>
+        <div class="pay-platforms">
+          <div
+            v-for="platform in payPlatforms"
+            :key="platform.value"
+            :class="['pay-platform-item', { active: selectedPlatform === platform.value }]"
+            @click="selectedPlatform = platform.value"
+          >
+            <div class="pay-radio">
+              <div class="pay-radio-dot"></div>
+            </div>
+            <span class="pay-platform-label">{{ platform.label }}</span>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="payDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handlePay" :loading="payLoading">
+          确认支付
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -367,5 +541,116 @@ onMounted(() => {
   font-size: 28px;
   font-weight: 600;
   color: var(--el-color-danger);
+}
+
+.pay-action {
+  margin-top: 20px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.order-info-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.order-amount {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--el-color-danger);
+}
+
+.pay-platforms {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pay-platform-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 2px solid var(--el-border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.pay-platform-item:hover {
+  border-color: var(--el-color-primary-light-3);
+}
+
+.pay-platform-item.active {
+  border-color: var(--el-color-primary);
+  background-color: var(--el-color-primary-light-9);
+}
+
+.pay-radio {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--el-border-color);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+
+.pay-platform-item.active .pay-radio {
+  border-color: var(--el-color-primary);
+}
+
+.pay-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--el-color-primary);
+  transform: scale(0);
+  transition: transform 0.3s;
+}
+
+.pay-platform-item.active .pay-radio-dot {
+  transform: scale(1);
+}
+
+.pay-platform-label {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+
+.pay-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.qr-code-tip {
+  font-size: 14px;
+  color: var(--el-text-color-regular);
+}
+
+.qr-code-box {
+  width: 200px;
+  height: 200px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.qr-code-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 </style>

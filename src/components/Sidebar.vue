@@ -1,8 +1,9 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/stores/user'
+import { useSettingStore } from '@/stores/setting'
 import {
   Picture,
   Upload,
@@ -18,13 +19,19 @@ import {
   Document,
   ChatDotRound,
   Coin,
-  Menu
+  Refresh
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const userStore = useUserStore()
+const settingStore = useSettingStore()
+
+// 监听主题变化
+watch(() => settingStore.darkMode, () => {
+  settingStore.applyTheme()
+})
 
 const menuItems = computed(() => [
   { path: '/home', icon: PictureRounded, text: t('nav.home') },
@@ -37,6 +44,7 @@ const menuItems = computed(() => [
   { path: '/tickets', icon: ChatDotRound, text: t('nav.tickets') },
   { path: '/tokens', icon: Key, text: t('nav.tokens') },
   { path: '/profile', icon: User, text: t('nav.profile') },
+  { path: '/sync', icon: Refresh, text: t('nav.sync') },
   { path: '/settings', icon: Setting, text: t('nav.settings') }
 ])
 
@@ -50,15 +58,17 @@ const handleLogout = async () => {
   await userStore.logout()
   router.push('/login')
 }
+
+// 响应式主题状态
+const isDarkTheme = computed(() => settingStore.darkMode)
+
+onMounted(() => {
+  settingStore.applyTheme()
+})
 </script>
 
 <template>
-  <div class="sidebar">
-    <div class="sidebar-header">
-      <Menu class="menu-icon" />
-      <span>{{ t('app.name') }}</span>
-    </div>
-
+  <div class="sidebar" :key="isDarkTheme">
     <div class="sidebar-menu">
       <div
         v-for="item in menuItems"
@@ -83,31 +93,20 @@ const handleLogout = async () => {
 
 <style scoped>
 .sidebar {
+  width: 160px;
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-color-secondary);
+  background: var(--bg-color);
   border-right: 1px solid var(--border-color);
-}
-
-.sidebar-header {
-  display: flex;
-  align-items: center;
-  padding: 20px;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-color);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.menu-icon {
-  margin-right: 10px;
-  font-size: 20px;
 }
 
 .sidebar-menu {
   flex: 1;
   padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   overflow-y: auto;
 }
 
@@ -133,8 +132,8 @@ const handleLogout = async () => {
 }
 
 .menu-item-icon {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   margin-right: 12px;
 }
 

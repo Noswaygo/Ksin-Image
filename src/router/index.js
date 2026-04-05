@@ -16,6 +16,35 @@ const routes = [
     meta: { requiresGuest: true }
   },
   {
+    path: '/pay',
+    name: 'PayWindow',
+    component: () => import('@/views/PayWindow.vue')
+  },
+  {
+    path: '/update',
+    name: 'Update',
+    component: () => import('@/views/Update.vue'),
+    meta: { hideSidebar: true }
+  },
+  {
+    path: '/album-detail',
+    name: 'AlbumDetail',
+    component: () => import('@/views/AlbumDetail.vue'),
+    meta: { hideSidebar: true }
+  },
+  {
+    path: '/square-album-detail',
+    name: 'SquareAlbumDetail',
+    component: () => import('@/views/SquareAlbumDetail.vue'),
+    meta: { hideSidebar: true }
+  },
+  {
+    path: '/viewer',
+    name: 'Viewer',
+    component: () => import('@/views/Viewer.vue'),
+    meta: { hideSidebar: true }
+  },
+  {
     path: '/',
     component: () => import('@/views/Layout.vue'),
     redirect: '/home',
@@ -43,6 +72,12 @@ const routes = [
         name: 'Albums',
         component: () => import('@/views/Albums.vue'),
         meta: { titleKey: 'nav.myAlbums', requiresAuth: true }
+      },
+      {
+        path: 'album/:id',
+        name: 'AlbumDetail',
+        component: () => import('@/views/AlbumDetail.vue'),
+        meta: { titleKey: '相册详情', requiresAuth: true }
       },
       {
         path: 'shares',
@@ -97,6 +132,12 @@ const routes = [
         name: 'Settings',
         component: () => import('@/views/Settings.vue'),
         meta: { titleKey: 'nav.settings' }
+      },
+      {
+        path: 'sync',
+        name: 'Sync',
+        component: () => import('@/views/Sync.vue'),
+        meta: { titleKey: 'nav.sync', requiresAuth: true }
       }
     ]
   }

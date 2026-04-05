@@ -131,47 +131,47 @@ export const userApi = {
 export const albumApi = {
   // 相册列表
   getAlbumList(params) {
-    return request.get('/album', { params })
+    return request.get('/user/albums', { params })
   },
 
   // 相册详情
   getAlbumDetail(id) {
-    return request.get(`/album/${id}`)
+    return request.get(`/user/albums/${id}`)
   },
 
   // 添加相册
   createAlbum(data) {
-    return request.post('/album', data)
+    return request.post('/user/albums', data)
   },
 
   // 修改相册
   updateAlbum(id, data) {
-    return request.put(`/album/${id}`, data)
+    return request.put(`/user/albums/${id}`, data)
   },
 
   // 删除相册
   deleteAlbum(id) {
-    return request.delete(`/album/${id}`)
+    return request.delete(`/user/albums/${id}`)
   },
 
   // 添加图片到相册
   addPhotosToAlbum(albumId, data) {
-    return request.post(`/album/${albumId}/photos`, data)
+    return request.post(`/user/albums/${albumId}/photos`, data)
   },
 
   // 从相册移除图片
   removePhotosFromAlbum(albumId, data) {
-    return request.delete(`/album/${albumId}/photos`, { data })
+    return request.delete(`/user/albums/${albumId}/photos`, { data })
   },
 
   // 附加标签
   addTag(albumId, data) {
-    return request.post(`/album/${albumId}/tags`, data)
+    return request.post(`/user/albums/${albumId}/tags`, data)
   },
 
   // 移除标签
   removeTag(albumId, data) {
-    return request.delete(`/album/${albumId}/tags`, { data })
+    return request.delete(`/user/albums/${albumId}/tags`, { data })
   }
 }
 
@@ -339,8 +339,8 @@ export const orderApi = {
   },
 
   // 支付订单
-  payOrder(id, data) {
-    return request.post(`/user/orders/${id}/pay`, data)
+  payOrder(tradeNo, data) {
+    return request.post(`/user/orders/${tradeNo}/pay`, data)
   }
 }
 
@@ -578,10 +578,39 @@ export const systemApi = {
     return request.get('/group')
   },
 
-  // 上传图片
-  uploadPhoto(file, onProgress) {
+  // 上传图片（批量）
+  uploadPhotos(files, options = {}, onProgress) {
     const formData = new FormData()
-    formData.append('file', file)
+    
+    // 添加所有文件
+    files.forEach(file => {
+      formData.append('file', file)
+    })
+
+    // 添加其他参数
+    if (options.storage_id !== undefined) {
+      formData.append('storage_id', options.storage_id)
+    }
+    if (options.album_id !== undefined) {
+      formData.append('album_id', options.album_id)
+    }
+    if (options.expired_at) {
+      formData.append('expired_at', options.expired_at)
+    }
+    if (options.tags && options.tags.length > 0) {
+      options.tags.forEach(tag => {
+        formData.append('tags[]', tag)
+      })
+    }
+    if (options.is_public !== undefined) {
+      formData.append('is_public', options.is_public)
+    }
+    if (options.is_remove_exif !== undefined) {
+      formData.append('is_remove_exif', options.is_remove_exif)
+    }
+    if (options.intro) {
+      formData.append('intro', options.intro)
+    }
 
     return request.post('/upload', formData, {
       headers: {
@@ -594,6 +623,11 @@ export const systemApi = {
         }
       }
     })
+  },
+
+  // 上传单张图片（兼容旧接口）
+  uploadPhoto(file, onProgress) {
+    return this.uploadPhotos([file], {}, onProgress)
   },
 
   // 提交反馈与建议
